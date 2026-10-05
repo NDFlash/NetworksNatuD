@@ -1,0 +1,4 @@
+cgrab
+*.o
+scans/
+*.part

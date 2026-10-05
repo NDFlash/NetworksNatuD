@@ -1,0 +1,66 @@
+#!/bin/sh
+#
+# batchgrab - fetch every file listed in a CLRTOSCAN-style list using cgrab.
+#
+# Usage: ./batchgrab LISTFILE
+#
+# Each data line looks like:   FILE HOST PORT AUTH
+# Blank lines, lines starting with '#', and the protocol lines (CLRTOSCAN / START-LIST / END-LIST) are skipped. A failed file does not stop the batch; a summary is printed at the end.
+# Exit status: 0 if every file was fetched, 1 if any failed, 2 on usage error.
+
+if [ $# -ne 1 ]; then
+    echo "Usage: $0 LISTFILE" >&2
+    exit 2
+fi
+
+list=$1
+if [ ! -r "$list" ]; then
+    echo "batchgrab: cannot read list file '$list'" >&2
+    exit 2
+fi
+
+cgrab="$(dirname "$0")/cgrab"
+if [ ! -x "$cgrab" ]; then
+    echo "batchgrab: '$cgrab' not found or not executable (run 'make' first)" >&2
+    exit 2
+fi
+
+ok=0
+failed=0
+skipped=0
+lineno=0
+
+echo "batchgrab: processing '$list'"
+
+while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    line=$(printf '%s' "$line" | tr -d '\r')
+
+    set -f          # no globbing while splitting the line into fields
+    set -- $line
+    set +f
+
+    [ $# -eq 0 ] && continue
+    case "$1" in
+        \#*|START-LIST|END-LIST|CLRTOSCAN*) continue ;;
+    esac
+
+    if [ $# -ne 4 ]; then
+        echo "batchgrab: line $lineno: expected 'FILE HOST PORT AUTH', skipping: $line" >&2
+        skipped=$((skipped + 1))
+        continue
+    fi
+
+    echo "----- [$lineno] $1 from $2:$3 -----"
+    if "$cgrab" "$1" "$2" "$3" "$4" < /dev/null; then
+        ok=$((ok + 1))
+    else
+        echo "batchgrab: FAILED to fetch '$1'" >&2
+        failed=$((failed + 1))
+    fi
+done < "$list"
+
+echo "====="
+echo "batchgrab: done. fetched=$ok failed=$failed skipped=$skipped"
+
+[ "$failed" -eq 0 ] && [ "$skipped" -eq 0 ]
